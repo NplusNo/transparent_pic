@@ -2,6 +2,7 @@ import os
 import io
 import requests
 import logging
+import gc
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 from rembg import remove
 
@@ -16,9 +17,9 @@ logger.setLevel(logging.INFO)
 # Print für Railway Logs
 print("Bot is starting up...")
 
-# Kleineres Modell verwenden
-os.environ['REMBG_MODEL'] = 'u2netp'
-os.environ['REMBG_CACHE_DIR'] = '/tmp'
+# Modell Konfiguration
+os.environ['U2NET_HOME'] = '/tmp/.u2net'
+os.environ['REMBG_MODEL'] = 'u2net_human_seg'
 
 # Telegram Bot Token
 TOKEN = os.getenv('TELEGRAM_TOKEN', 'IHR_TOKEN_HIER')
@@ -45,20 +46,18 @@ def process_image(update, context):
         input_data = response.content
         logger.info("Bild in Speicher geladen")
         
-        try:
-            # Hintergrund entfernen mit Fehlerbehandlung
-            logger.info("Starte Hintergrundentfernung...")
-            output_data = remove(
-                input_data,
-                alpha_matting=False,
-                alpha_matting_foreground_threshold=240,
-                alpha_matting_background_threshold=10,
-                alpha_matting_erode_size=10
-            )
-            logger.info("Hintergrund entfernt")
-        except Exception as e:
-            logger.error(f"Fehler bei der Hintergrundentfernung: {str(e)}")
-            raise
+        # Speicher freigeben
+        gc.collect()
+        
+        # Hintergrund entfernen
+        logger.info("Starte Hintergrundentfernung...")
+        output_data = remove(
+            input_data,
+            alpha_matting=False,
+            only_mask=False,
+            post_process_mask=False
+        )
+        logger.info("Hintergrund entfernt")
         
         # Ergebnis senden
         update.message.reply_document(
@@ -74,6 +73,8 @@ def process_image(update, context):
         error_msg = f"Fehler aufgetreten: {str(e)}"
         logger.error(error_msg)
         update.message.reply_text(error_msg)
+        # Speicher freigeben bei Fehler
+        gc.collect()
 
 def main():
     """Startet den Bot."""
