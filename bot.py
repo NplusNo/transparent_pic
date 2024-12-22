@@ -179,26 +179,18 @@ def process_image(update, context):
        user_id = update.effective_user.id
        mode = bot_data.mode.get(user_id, 'transparent')  # Standard ist 'transparent'
        
-       # Basis-Parameter für rembg
-       kwargs = {
-           'alpha_matting': True,
-           'alpha_matting_foreground_threshold': 240,
-           'alpha_matting_background_threshold': 10,
-           'alpha_matting_erode_size': 5,
-           'post_process_mask': True
-       }
-       
        if mode == 'transparent':
            msg = update.message.reply_text("Erstelle transparentes Bild... (ca. 30-60 Sekunden)")
+           # Einfache Transparenz ohne zusätzliche Parameter
+           kwargs = {}
        else:  # mode == 'filter'
            color = bot_data.color_filter.get(user_id)
            if not color:
                update.message.reply_text("Kein Farbfilter gesetzt. Bitte erst mit /filter #FARBCODE einen Filter setzen.")
                return
            msg = update.message.reply_text(f"Filtere Farbe {color}... (ca. 30-60 Sekunden)")
-           # Füge Farbfilter zu den Parametern hinzu
-           if color:
-               kwargs['bgcolor'] = color
+           # Nur Farbe setzen, keine zusätzlichen Parameter
+           kwargs = {'bgcolor': color}
        
        logger.info("Bild empfangen, starte Verarbeitung...")
        
