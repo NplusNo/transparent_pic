@@ -45,10 +45,20 @@ def process_image(update, context):
         input_data = response.content
         logger.info("Bild in Speicher geladen")
         
-        # Hintergrund entfernen
-        logger.info("Starte Hintergrundentfernung...")
-        output_data = remove(input_data)  # Verwendet das Modell aus der Umgebungsvariable
-        logger.info("Hintergrund entfernt")
+        try:
+            # Hintergrund entfernen mit Fehlerbehandlung
+            logger.info("Starte Hintergrundentfernung...")
+            output_data = remove(
+                input_data,
+                alpha_matting=False,
+                alpha_matting_foreground_threshold=240,
+                alpha_matting_background_threshold=10,
+                alpha_matting_erode_size=10
+            )
+            logger.info("Hintergrund entfernt")
+        except Exception as e:
+            logger.error(f"Fehler bei der Hintergrundentfernung: {str(e)}")
+            raise
         
         # Ergebnis senden
         update.message.reply_document(
