@@ -25,7 +25,6 @@ os.environ['REMBG_MODEL'] = 'u2net_human_seg'
 # Telegram Bot Token
 TOKEN = os.getenv('TELEGRAM_TOKEN', 'IHR_TOKEN_HIER')
 
-# Bot Data Class für User-Einstellungen
 class BotData:
     def __init__(self):
         self.color_filter = {}  # Speichert den Farbfilter pro User
@@ -60,8 +59,8 @@ def resize_with_padding(image, target_size):
     
     return padded_image
 
-def filter_color(input_data, target_color, tolerance=30):
-    """Filtert eine bestimmte Farbe aus dem Bild."""
+def filter_color(input_data, target_color, tolerance=50):  # Erhöhte Toleranz
+    """Filtert eine bestimmte Farbe aus dem Bild mit verbesserter Nachbearbeitung."""
     # Farbe in RGB umwandeln
     r, g, b = tuple(int(target_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
     
@@ -80,28 +79,50 @@ def filter_color(input_data, target_color, tolerance=30):
     mask = mask.convert('L')  # Graustufenmaske
     
     # Arrays für schnellere Verarbeitung
-    original_data = original.load()
-    mask_data = mask.load()
-    result_data = result.load()
-    
     width, height = original.size
-    
-    # Pixel verarbeiten
+    original_pixels = original.load()
+    mask_pixels = mask.load()
+    result_pixels = result.load()
+
+    # Erste Phase: Pixel verarbeiten mit erhöhter Toleranz
     for x in range(width):
         for y in range(height):
-            if mask_data[x, y] > 128:  # Vordergrund
-                r1, g1, b1, a1 = original_data[x, y]
-                # Wenn Pixel nahe an Zielfarbe
-                if (abs(r1 - r) < tolerance and 
-                    abs(g1 - g) < tolerance and 
-                    abs(b1 - b) < tolerance):
-                    result_data[x, y] = (0, 0, 0, 0)  # Transparent
+            if mask_pixels[x, y] > 128:  # Vordergrund
+                r1, g1, b1, a1 = original_pixels[x, y]
+                # Erweiterte Farbprüfung
+                color_diff = max(abs(r1 - r), abs(g1 - g), abs(b1 - b))
+                brightness = (r1 + g1 + b1) / 3
+                
+                if color_diff < tolerance or brightness > 235:  # Angepasste Schwellwerte
+                    result_pixels[x, y] = (0, 0, 0, 0)  # Transparent
                 else:
-                    result_data[x, y] = original_data[x, y]
+                    result_pixels[x, y] = original_pixels[x, y]
             else:
-                result_data[x, y] = (0, 0, 0, 0)  # Transparent
-    
-    return result
+                result_pixels[x, y] = (0, 0, 0, 0)  # Transparent
+
+    # Zweite Phase: Rauschentfernung und Glättung
+    cleaned = Image.new('RGBA', original.size)
+    cleaned_pixels = cleaned.load()
+
+    for x in range(2, width-2):
+        for y in range(2, height-2):
+            if result_pixels[x, y][3] > 0:  # Wenn Pixel nicht transparent
+                # Zähle transparente Nachbarn in 5x5 Umgebung
+                transparent_count = 0
+                for dx in range(-2, 3):
+                    for dy in range(-2, 3):
+                        if result_pixels[x+dx, y+dy][3] == 0:
+                            transparent_count += 1
+                
+                # Wenn zu viele transparente Nachbarn, mache Pixel auch transparent
+                if transparent_count > 20:  # Von 25 möglichen Nachbarn
+                    cleaned_pixels[x, y] = (0, 0, 0, 0)
+                else:
+                    cleaned_pixels[x, y] = result_pixels[x, y]
+            else:
+                cleaned_pixels[x, y] = (0, 0, 0, 0)
+
+    return cleaned
 
 def mode_transparent(update, context):
     """Setzt den Modus auf Transparenz."""
@@ -185,7 +206,7 @@ def process_image(update, context):
         img_byte_arr.seek(0)
         
         # Bild senden
-        filename = 'transparent_4500x5400.png' if mode == 'transparent' else f'filtered_{color[1:]}_4500x5400.png'
+        filename = 'transparent_4500x5400.png' if mode == 'transparent' else f'filtered_{bot_data.color_filter[user_id][1:]}_4500x5400.png'
         update.message.reply_document(
             document=img_byte_arr,
             filename=filename
@@ -199,16 +220,6 @@ def process_image(update, context):
         logger.error(error_msg)
         update.message.reply_text(error_msg)
         gc.collect()
-
-def start(update, context):
-    """Sendet eine Nachricht wenn der Befehl /start ausgegeben wird."""
-    logger.info("Received /start command")
-    user_id = update.effective_user.id
-    bot_data.mode[user_id] = 'transparent'  # Standard: Transparenz
-    update.message.reply_text(
-        'Hallo! Sende mir ein Bild und ich werde den Hintergrund transparent machen.\n'
-        'Nutze /help um alle verfügbaren Befehle zu sehen.'
-    )
 
 def help_command(update, context):
     """Zeigt Hilfe-Text mit allen verfügbaren Commands."""
@@ -268,10 +279,20 @@ def help_command(update, context):
 *Hinweise:*
 - Die Bildverarbeitung kann 30-60 Sekunden dauern
 - Bilder werden auf 4500x5400px skaliert
-- Der Farbfilter hat eine Toleranz von ±30 Pixelwerten
+- Der Farbfilter hat eine verbesserte Nachbearbeitung für isolierte Punkte
 """.strip()
     
     update.message.reply_text(help_text, parse_mode='Markdown')
+
+def start(update, context):
+    """Sendet eine Nachricht wenn der Befehl /start ausgegeben wird."""
+    logger.info("Received /start command")
+    user_id = update.effective_user.id
+    bot_data.mode[user_id] = 'transparent'  # Standard: Transparenz
+    update.message.reply_text(
+        'Hallo! Sende mir ein Bild und ich werde den Hintergrund transparent machen.\n'
+        'Nutze /help um alle verfügbaren Befehle zu sehen.'
+    )
 
 def main():
     """Startet den Bot."""
