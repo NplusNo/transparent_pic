@@ -169,6 +169,23 @@ def process_image(update, context):
         update.message.reply_text(error_msg)
         gc.collect()
 
+def main():
+    """Startet den Bot."""
+    logger.info("Bot starting...")
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("help", help_command))
+    dp.add_handler(CommandHandler("filter", set_filter))
+    dp.add_handler(CommandHandler("mode_transparent", mode_transparent))
+    dp.add_handler(CommandHandler("mode_filter", mode_filter))
+    dp.add_handler(CommandHandler("analyze_colors", analyze_colors))
+    dp.add_handler(MessageHandler(Filters.photo, process_image))
+    logger.info("Bot handlers registered")
+    updater.start_polling()
+    logger.info("Bot is now running")
+    updater.idle()
+
 if __name__ == '__main__':
     main()
 
