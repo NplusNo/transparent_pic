@@ -64,7 +64,7 @@ def resize_with_padding(image, target_size):
 def analyze_image(image_data):
    """Generiert Produktdetails mit lokaler Logik"""
    try:
-       # Liste möglicher Kategorien
+       # Liste möglicher Kategorien - Jetzt mit exakt 4 Werten pro Kategorie
        categories = [
            ["Fashion", "Style", "Trendy", "Modern fashion that makes a statement"],
            ["Animal", "Wildlife", "Nature", "Beautiful wildlife artwork"],
@@ -76,40 +76,41 @@ def analyze_image(image_data):
            ["Music", "Sound", "Rhythm", "For music lovers"],
            ["Food", "Cuisine", "Delicious", "Foodie favorites"],
            ["Travel", "Adventure", "Explore", "Adventure awaits"],
-           ["Cute", "Adorable", "Sweet", "Irresistibly cute"],
-           ["Fantasy", "Magic", "Dream", "Magical and mystical"],
-           ["Space", "Galaxy", "Universe", "Out of this world"],
-           ["Gothic", "Dark", "Mysterious", "Dark and mysterious"],
-           ["Anime", "Manga", "Japanese", "Anime inspired art"]
+           ["Cute", "Adorable", "Sweet", "Irresistibly cute designs"],
+           ["Fantasy", "Magic", "Dream", "Magical and mystical artwork"],
+           ["Space", "Galaxy", "Universe", "Out of this world designs"],
+           ["Gothic", "Dark", "Mysterious", "Dark and mysterious art"],
+           ["Anime", "Manga", "Japanese", "Anime inspired artwork"]
        ]
-       
-       # Zufällige Kategorie wählen
-       chosen = random.choice(categories)
+
+       # Zufällige Kategorie wählen und explizit die 4 Werte zuweisen
+       theme = random.choice(categories)
+       main_theme, sub_theme, style, desc = theme
        
        # Produktdetails generieren
-       design_title = f"{chosen[0]} {chosen[1]} Design Collection"
-       brand = f"{chosen[0]} Art Studio"
+       design_title = f"{main_theme} {sub_theme} Design Collection"
+       brand = f"{main_theme} Art Studio"
        
-       feature_1 = f"Premium {chosen[0]} artwork featuring unique {chosen[1]} elements - {chosen[3]}"
-       feature_2 = f"Perfect gift for {chosen[2]} enthusiasts - High-quality design that stands out"
+       feature_1 = f"Premium {main_theme} artwork featuring unique {sub_theme} elements - {desc}"
+       feature_2 = f"Perfect gift for {style} enthusiasts - High-quality design that stands out"
        
        description = f"""
-Welcome to our exclusive {chosen[0]} collection! This unique design combines the beauty of {chosen[1]} with the spirit of {chosen[2]}.
+Welcome to our exclusive {main_theme} collection! This unique design combines the beauty of {sub_theme} with the spirit of {style}.
 
-{chosen[3]}! Our high-quality printing process ensures vibrant colors that won't fade, making this piece a lasting addition to your collection.
+{desc}! Our high-quality printing process ensures vibrant colors that won't fade, making this piece a lasting addition to your collection.
 
 Key Features:
 - Premium quality materials
 - Vibrant, long-lasting colors
-- Professional {chosen[0]} design
-- Perfect for {chosen[2]} lovers
+- Professional {main_theme} design
+- Perfect for {style} lovers
 - Makes a great gift
 
-Whether you're a fan of {chosen[1]} or simply appreciate unique artwork, this piece makes a bold statement. Each design is carefully crafted to ensure both style and quality.
+Whether you're a fan of {sub_theme} or simply appreciate unique artwork, this piece makes a bold statement. Each design is carefully crafted to ensure both style and quality.
 
 Ideal for:
-- {chosen[2]} enthusiasts
-- {chosen[0]} lovers
+- {style} enthusiasts
+- {main_theme} lovers
 - Unique gift-giving
 - Personal style expression
 - Collection addition
