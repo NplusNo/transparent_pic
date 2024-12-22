@@ -29,6 +29,7 @@ class BotData:
     def __init__(self):
         self.color_filter = {}  # Speichert den Farbfilter pro User
         self.mode = {}  # 'transparent' oder 'filter'
+        self.last_colors = {}  # Speichert die letzten analysierten Farben pro User
 
 bot_data = BotData()
 
@@ -38,11 +39,9 @@ def resize_with_padding(image, target_size):
     aspect_ratio = original_width / original_height
     
     if aspect_ratio > target_size[0] / target_size[1]:
-        # Bild ist verhältnismäßig breiter
         new_width = target_size[0]
         new_height = int(new_width / aspect_ratio)
     else:
-        # Bild ist verhältnismäßig höher
         new_height = target_size[1]
         new_width = int(new_height * aspect_ratio)
     
@@ -59,7 +58,40 @@ def resize_with_padding(image, target_size):
     
     return padded_image
 
-def filter_color(input_data, target_color, tolerance=50):  # Erhöhte Toleranz
+def analyze_dominant_colors(input_data, num_colors=3):
+    """Analysiert die dominanten Farben im Bild."""
+    # Bild laden
+    img = Image.open(io.BytesIO(input_data))
+    img = img.convert('RGB')
+    
+    # Bild verkleinern für schnellere Verarbeitung
+    img.thumbnail((150, 150))
+    
+    # Pixel sammeln
+    pixels = list(img.getdata())
+    
+    # Farben zählen
+    color_counts = {}
+    for pixel in pixels:
+        # Gruppiere ähnliche Farben
+        rounded = (round(pixel[0]/10)*10, 
+                  round(pixel[1]/10)*10, 
+                  round(pixel[2]/10)*10)
+        color_counts[rounded] = color_counts.get(rounded, 0) + 1
+    
+    # Nach Häufigkeit sortieren
+    sorted_colors = sorted(color_counts.items(), key=lambda x: x[1], reverse=True)
+    
+    # Konvertiere zu Hex und formatiere
+    dominant_colors = []
+    for color, count in sorted_colors[:num_colors]:
+        hex_color = '#{:02x}{:02x}{:02x}'.format(color[0], color[1], color[2])
+        percentage = (count / len(pixels)) * 100
+        dominant_colors.append((hex_color, percentage))
+    
+    return dominant_colors
+
+def filter_color(input_data, target_color, tolerance=50):
     """Filtert eine bestimmte Farbe aus dem Bild mit verbesserter Nachbearbeitung."""
     # Farbe in RGB umwandeln
     r, g, b = tuple(int(target_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
@@ -84,7 +116,7 @@ def filter_color(input_data, target_color, tolerance=50):  # Erhöhte Toleranz
     mask_pixels = mask.load()
     result_pixels = result.load()
 
-    # Erste Phase: Pixel verarbeiten mit erhöhter Toleranz
+    # Erste Phase: Pixel verarbeiten
     for x in range(width):
         for y in range(height):
             if mask_pixels[x, y] > 128:  # Vordergrund
@@ -93,14 +125,14 @@ def filter_color(input_data, target_color, tolerance=50):  # Erhöhte Toleranz
                 color_diff = max(abs(r1 - r), abs(g1 - g), abs(b1 - b))
                 brightness = (r1 + g1 + b1) / 3
                 
-                if color_diff < tolerance or brightness > 235:  # Angepasste Schwellwerte
+                if color_diff < tolerance or brightness > 235:
                     result_pixels[x, y] = (0, 0, 0, 0)  # Transparent
                 else:
                     result_pixels[x, y] = original_pixels[x, y]
             else:
                 result_pixels[x, y] = (0, 0, 0, 0)  # Transparent
 
-    # Zweite Phase: Rauschentfernung und Glättung
+    # Zweite Phase: Rauschentfernung
     cleaned = Image.new('RGBA', original.size)
     cleaned_pixels = cleaned.load()
 
@@ -114,8 +146,7 @@ def filter_color(input_data, target_color, tolerance=50):  # Erhöhte Toleranz
                         if result_pixels[x+dx, y+dy][3] == 0:
                             transparent_count += 1
                 
-                # Wenn zu viele transparente Nachbarn, mache Pixel auch transparent
-                if transparent_count > 20:  # Von 25 möglichen Nachbarn
+                if transparent_count > 15:  # Schwellwert angepasst
                     cleaned_pixels[x, y] = (0, 0, 0, 0)
                 else:
                     cleaned_pixels[x, y] = result_pixels[x, y]
@@ -124,6 +155,21 @@ def filter_color(input_data, target_color, tolerance=50):  # Erhöhte Toleranz
 
     return cleaned
 
+def analyze_colors(update, context):
+    """Analysiert die dominanten Farben im letzten Bild."""
+    user_id = update.effective_user.id
+    if user_id not in bot_data.last_colors:
+        update.message.reply_text("Bitte sende erst ein Bild, bevor du die Farben analysierst.")
+        return
+    
+    colors = bot_data.last_colors[user_id]
+    color_text = "\n".join([f"Farbe {i+1}: {color[0]} ({color[1]:.1f}%)" 
+                           for i, color in enumerate(colors)])
+    
+    update.message.reply_text(
+        f"Dominante Farben im Bild:\n{color_text}\n\n"
+        "Verwende /filter #FARBCODE um eine dieser Farben zu behalten und den Rest zu entfernen."
+    )
 def mode_transparent(update, context):
     """Setzt den Modus auf Transparenz."""
     user_id = update.effective_user.id
@@ -187,6 +233,18 @@ def process_image(update, context):
         input_data = response.content
         logger.info("Bild in Speicher geladen")
         
+        # Dominante Farben analysieren und speichern
+        bot_data.last_colors[user_id] = analyze_dominant_colors(input_data)
+        
+        # Info über dominante Farben senden
+        colors = bot_data.last_colors[user_id]
+        color_text = "\n".join([f"Farbe {i+1}: {color[0]} ({color[1]:.1f}%)" 
+                               for i, color in enumerate(colors)])
+        update.message.reply_text(
+            f"Dominante Farben im Bild:\n{color_text}\n"
+            "Verwende diese Farbcodes mit dem /filter Befehl."
+        )
+        
         gc.collect()
         
         logger.info("Starte Bildverarbeitung...")
@@ -232,6 +290,7 @@ def help_command(update, context):
 /mode_filter - Aktiviert den Farbfilter-Modus
 /filter #FARBCODE - Setzt einen spezifischen Farbfilter (z.B. /filter #FFFFFF für Weiß)
 /filter - Ohne Farbcode entfernt den aktiven Filter
+/analyze_colors - Zeigt die dominanten Farben des letzten Bildes
 
 *Häufige Farben und ihre Codes:*
 ⚪️ Weiß: #FFFFFF
@@ -262,8 +321,8 @@ def help_command(update, context):
    • Aktivierung mit /mode_transparent
 
 2. *Filter-Modus*:
-   • Filtert nur eine bestimmte Farbe
-   • Benötigt aktiven Farbfilter
+   • Filtert bestimmte Farben
+   • Zeigt dominante Farben im Bild
    • Aktivierung mit /mode_filter
 
 *Beispiele:*
@@ -272,14 +331,15 @@ def help_command(update, context):
    • Bild senden
 
 2. Bestimmte Farbe filtern:
-   • /filter #FFFFFF
+   • Bild senden (zeigt dominante Farben)
+   • /filter #FARBCODE
    • /mode_filter
-   • Bild senden
+   • Bild erneut senden
 
 *Hinweise:*
 - Die Bildverarbeitung kann 30-60 Sekunden dauern
 - Bilder werden auf 4500x5400px skaliert
-- Der Farbfilter hat eine verbesserte Nachbearbeitung für isolierte Punkte
+- Farbanalyse erfolgt automatisch bei jedem Bild
 """.strip()
     
     update.message.reply_text(help_text, parse_mode='Markdown')
@@ -308,6 +368,7 @@ def main():
     dp.add_handler(CommandHandler("filter", set_filter))
     dp.add_handler(CommandHandler("mode_transparent", mode_transparent))
     dp.add_handler(CommandHandler("mode_filter", mode_filter))
+    dp.add_handler(CommandHandler("analyze_colors", analyze_colors))
     dp.add_handler(MessageHandler(Filters.photo, process_image))
     
     logger.info("Bot handlers registered")
