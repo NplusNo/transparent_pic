@@ -305,10 +305,6 @@ def process_image(update, context):
     except Exception as e:
         error_msg = f"Fehler aufgetreten: {str(e)}"
         logger.error(error_msg)
-
-except Exception as e:
-        error_msg = f"Fehler aufgetreten: {str(e)}"
-        logger.error(error_msg)
         update.message.reply_text(error_msg)
         gc.collect()
 
