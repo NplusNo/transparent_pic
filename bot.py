@@ -296,7 +296,7 @@ import numpy as np
 import io
 
 # Telegram Bot Token aus Umgebungsvariable
-TOKEN = os.getenv('7306078976:AAHYfdY_uBLQnsgNp1JF2SlzmW10-gcE-U4')
+TOKEN = os.getenv('TELEGRAM_TOKEN')
 
 def start(update, context):
     """Sendet eine Nachricht wenn der Befehl /start ausgegeben wird."""
