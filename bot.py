@@ -18,6 +18,7 @@ print("Bot is starting up...")
 
 # Kleineres Modell verwenden
 os.environ['REMBG_MODEL'] = 'u2netp'
+os.environ['REMBG_CACHE_DIR'] = '/tmp'
 
 # Telegram Bot Token
 TOKEN = os.getenv('TELEGRAM_TOKEN', 'IHR_TOKEN_HIER')
@@ -46,7 +47,7 @@ def process_image(update, context):
         
         # Hintergrund entfernen
         logger.info("Starte Hintergrundentfernung...")
-        output_data = remove(input_data, model_name='u2netp')
+        output_data = remove(input_data)  # Verwendet das Modell aus der Umgebungsvariable
         logger.info("Hintergrund entfernt")
         
         # Ergebnis senden
