@@ -28,8 +28,8 @@ TOKEN = os.getenv('TELEGRAM_TOKEN', 'IHR_TOKEN_HIER')
 # Bot Data Class für User-Einstellungen
 class BotData:
    def __init__(self):
-       self.description_enabled = {}  # Speichert den Status pro User
        self.color_filter = {}  # Speichert den Farbfilter pro User
+       self.mode = {}  # 'transparent' oder 'filter'
 
 bot_data = BotData()
 
@@ -60,6 +60,21 @@ def resize_with_padding(image, target_size):
    
    return padded_image
 
+def mode_transparent(update, context):
+   """Setzt den Modus auf Transparenz."""
+   user_id = update.effective_user.id
+   bot_data.mode[user_id] = 'transparent'
+   update.message.reply_text("Modus auf 'Transparent' gesetzt! 🌟\nBilder werden jetzt mit transparentem Hintergrund erstellt.")
+
+def mode_filter(update, context):
+   """Setzt den Modus auf Farbfilter."""
+   user_id = update.effective_user.id
+   if user_id not in bot_data.color_filter:
+       update.message.reply_text("Bitte setze zuerst einen Farbfilter mit /filter #FARBCODE")
+       return
+   bot_data.mode[user_id] = 'filter'
+   update.message.reply_text(f"Modus auf 'Farbfilter' gesetzt! 🎨\nAktiver Filter: {bot_data.color_filter[user_id]}")
+
 def set_filter(update, context):
    """Setzt den Farbfilter."""
    user_id = update.effective_user.id
@@ -68,7 +83,8 @@ def set_filter(update, context):
        # Wenn kein Argument gegeben, Filter entfernen
        if user_id in bot_data.color_filter:
            del bot_data.color_filter[user_id]
-           update.message.reply_text("Farbfilter wurde entfernt! ⚪️")
+           bot_data.mode[user_id] = 'transparent'  # Zurück zu transparent
+           update.message.reply_text("Farbfilter wurde entfernt! ⚪️\nModus auf 'Transparent' zurückgesetzt.")
        else:
            update.message.reply_text("Bitte gib einen Farbcode an, z.B. /filter #FFFFFF oder /filter zum Entfernen des Filters")
        return
@@ -82,15 +98,15 @@ def set_filter(update, context):
        return
    
    bot_data.color_filter[user_id] = color
-   update.message.reply_text(f"Farbfilter auf {color} gesetzt! 🎨")
+   update.message.reply_text(f"Farbfilter auf {color} gesetzt! 🎨\nNutze /mode_filter um den Filtermodus zu aktivieren.")
 
 def start(update, context):
    """Sendet eine Nachricht wenn der Befehl /start ausgegeben wird."""
    logger.info("Received /start command")
    user_id = update.effective_user.id
-   bot_data.description_enabled[user_id] = False  # Standard: Beschreibung aus
+   bot_data.mode[user_id] = 'transparent'  # Standard: Transparenz
    update.message.reply_text(
-       'Hallo! Sende mir ein Bild und ich werde den Hintergrund entfernen.\n'
+       'Hallo! Sende mir ein Bild und ich werde den Hintergrund transparent machen.\n'
        'Nutze /help um alle verfügbaren Befehle zu sehen.'
    )
 
@@ -101,6 +117,8 @@ def help_command(update, context):
 
 /start - Startet den Bot und zeigt die Willkommensnachricht
 /help - Zeigt diese Hilfe-Nachricht
+/mode_transparent - Aktiviert den Transparenz-Modus (Standard)
+/mode_filter - Aktiviert den Farbfilter-Modus
 /filter #FARBCODE - Setzt einen spezifischen Farbfilter (z.B. /filter #FFFFFF für Weiß)
 /filter - Ohne Farbcode entfernt den aktiven Filter
 
@@ -126,20 +144,30 @@ def help_command(update, context):
 🤍 Cremeweiß: #FFFDD0
 ⚫️ Anthrazit: #293133
 
-*Verwendung:*
-1. Optional: Setze einen Farbfilter mit /filter #FARBCODE
-2. Sende ein Bild an den Bot
-3. Der Bot entfernt den Hintergrund und die gefilterte Farbe
-4. Das Bild wird auf 4500x5400px skaliert
+*Modi:*
+1. *Transparent-Modus (Standard)*:
+  • Entfernt den Hintergrund komplett
+  • Ersetzt ihn durch Transparenz
+  • Aktivierung mit /mode_transparent
+
+2. *Filter-Modus*:
+  • Filtert nur eine bestimmte Farbe
+  • Benötigt aktiven Farbfilter
+  • Aktivierung mit /mode_filter
 
 *Beispiele:*
-- /filter #FFFFFF - Filtert Weiß
-- /filter #FFC0CB - Filtert Pink
-- /filter - Entfernt den aktiven Filter
+1. Transparenter Hintergrund:
+  • /mode_transparent
+  • Bild senden
+
+2. Bestimmte Farbe filtern:
+  • /filter #FFFFFF
+  • /mode_filter
+  • Bild senden
 
 *Hinweise:*
 - Die Bildverarbeitung kann 30-60 Sekunden dauern
-- Bilder werden proportional skaliert und mit Transparenz aufgefüllt
+- Bilder werden auf 4500x5400px skaliert
 - Der Farbfilter hat eine Toleranz von ±10%
 """.strip()
    
@@ -148,8 +176,31 @@ def help_command(update, context):
 def process_image(update, context):
    """Verarbeitet das empfangene Bild."""
    try:
+       user_id = update.effective_user.id
+       mode = bot_data.mode.get(user_id, 'transparent')  # Standard ist 'transparent'
+       
+       if mode == 'transparent':
+           msg = update.message.reply_text("Erstelle transparentes Bild... (ca. 30-60 Sekunden)")
+           kwargs = {
+               'alpha_matting': True,
+               'alpha_matting_foreground_threshold': 240,
+               'alpha_matting_background_threshold': 10,
+               'alpha_matting_erode_size': 5,
+               'post_process_mask': True
+           }
+       else:  # mode == 'filter'
+           color = bot_data.color_filter.get(user_id)
+           msg = update.message.reply_text(f"Filtere Farbe {color}... (ca. 30-60 Sekunden)")
+           kwargs = {
+               'alpha_matting': True,
+               'alpha_matting_foreground_threshold': 240,
+               'alpha_matting_background_threshold': 10,
+               'alpha_matting_erode_size': 5,
+               'post_process_mask': True,
+               'bgcolor': color
+           }
+       
        logger.info("Bild empfangen, starte Verarbeitung...")
-       msg = update.message.reply_text("Verarbeite Bild... (ca. 30-60 Sekunden)")
        
        photo_file = update.message.photo[-1].get_file()
        logger.info("Bild heruntergeladen")
@@ -161,29 +212,6 @@ def process_image(update, context):
        gc.collect()
        
        logger.info("Starte Hintergrundentfernung...")
-       
-       # Farbfilter anwenden falls gesetzt
-       user_id = update.effective_user.id
-       color_filter = bot_data.color_filter.get(user_id)
-       
-       if color_filter:
-           kwargs = {
-               'alpha_matting': True,
-               'alpha_matting_foreground_threshold': 240,
-               'alpha_matting_background_threshold': 10,
-               'alpha_matting_erode_size': 5,
-               'post_process_mask': True,
-               'bgcolor': color_filter
-           }
-       else:
-           kwargs = {
-               'alpha_matting': True,
-               'alpha_matting_foreground_threshold': 240,
-               'alpha_matting_background_threshold': 10,
-               'alpha_matting_erode_size': 5,
-               'post_process_mask': True
-           }
-       
        output_data = remove(input_data, **kwargs)
        logger.info("Hintergrund entfernt")
        
@@ -223,6 +251,8 @@ def main():
    dp.add_handler(CommandHandler("start", start))
    dp.add_handler(CommandHandler("help", help_command))
    dp.add_handler(CommandHandler("filter", set_filter))
+   dp.add_handler(CommandHandler("mode_transparent", mode_transparent))
+   dp.add_handler(CommandHandler("mode_filter", mode_filter))
    dp.add_handler(MessageHandler(Filters.photo, process_image))
    
    logger.info("Bot handlers registered")
