@@ -4,7 +4,6 @@ from PIL import Image
 import requests
 import logging
 import gc
-import random
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 from rembg import remove
 
@@ -61,76 +60,6 @@ def resize_with_padding(image, target_size):
    
    return padded_image
 
-def analyze_image(image_data):
-   """Generiert Produktdetails mit lokaler Logik"""
-   try:
-       # Liste möglicher Kategorien - Jetzt mit exakt 4 Werten pro Kategorie
-       categories = [
-           ["Fashion", "Style", "Trendy", "Modern fashion that makes a statement"],
-           ["Animal", "Wildlife", "Nature", "Beautiful wildlife artwork"],
-           ["Art", "Abstract", "Creative", "Unique artistic expression"],
-           ["Vintage", "Retro", "Classic", "Timeless retro charm"],
-           ["Fun", "Humor", "Joy", "Bringing smiles and laughter"],
-           ["Love", "Heart", "Romance", "Spreading love and joy"],
-           ["Sport", "Active", "Fitness", "For the active lifestyle"],
-           ["Music", "Sound", "Rhythm", "For music lovers"],
-           ["Food", "Cuisine", "Delicious", "Foodie favorites"],
-           ["Travel", "Adventure", "Explore", "Adventure awaits"],
-           ["Cute", "Adorable", "Sweet", "Irresistibly cute designs"],
-           ["Fantasy", "Magic", "Dream", "Magical and mystical artwork"],
-           ["Space", "Galaxy", "Universe", "Out of this world designs"],
-           ["Gothic", "Dark", "Mysterious", "Dark and mysterious art"],
-           ["Anime", "Manga", "Japanese", "Anime inspired artwork"]
-       ]
-
-       # Zufällige Kategorie wählen und explizit die 4 Werte zuweisen
-       theme = random.choice(categories)
-       main_theme, sub_theme, style, desc = theme
-       
-       # Produktdetails generieren
-       design_title = f"{main_theme} {sub_theme} Design Collection"
-       brand = f"{main_theme} Art Studio"
-       
-       feature_1 = f"Premium {main_theme} artwork featuring unique {sub_theme} elements - {desc}"
-       feature_2 = f"Perfect gift for {style} enthusiasts - High-quality design that stands out"
-       
-       description = f"""
-Welcome to our exclusive {main_theme} collection! This unique design combines the beauty of {sub_theme} with the spirit of {style}.
-
-{desc}! Our high-quality printing process ensures vibrant colors that won't fade, making this piece a lasting addition to your collection.
-
-Key Features:
-- Premium quality materials
-- Vibrant, long-lasting colors
-- Professional {main_theme} design
-- Perfect for {style} lovers
-- Makes a great gift
-
-Whether you're a fan of {sub_theme} or simply appreciate unique artwork, this piece makes a bold statement. Each design is carefully crafted to ensure both style and quality.
-
-Ideal for:
-- {style} enthusiasts
-- {main_theme} lovers
-- Unique gift-giving
-- Personal style expression
-- Collection addition
-
-Care Instructions:
-Machine washable, inside out with cold water. The design is made to last through multiple washes while maintaining its vibrant appearance.
-       """.strip()
-       
-       return {
-           "design_title": design_title[:58],
-           "brand": brand[:48],
-           "feature_1": feature_1[:254],
-           "feature_2": feature_2[:254],
-           "description": description[:1998]
-       }
-       
-   except Exception as e:
-       logger.error(f"Fehler bei der Bildanalyse: {str(e)}")
-       return None
-
 def set_filter(update, context):
    """Setzt den Farbfilter."""
    user_id = update.effective_user.id
@@ -172,8 +101,6 @@ def help_command(update, context):
 
 /start - Startet den Bot und zeigt die Willkommensnachricht
 /help - Zeigt diese Hilfe-Nachricht
-/description_on - Aktiviert automatische Produktbeschreibungen
-/description_off - Deaktiviert automatische Produktbeschreibungen
 /filter #FARBCODE - Setzt einen spezifischen Farbfilter (z.B. /filter #FFFFFF für Weiß)
 /filter - Ohne Farbcode entfernt den aktiven Filter
 
@@ -204,7 +131,6 @@ def help_command(update, context):
 2. Sende ein Bild an den Bot
 3. Der Bot entfernt den Hintergrund und die gefilterte Farbe
 4. Das Bild wird auf 4500x5400px skaliert
-5. Wenn Produktbeschreibungen aktiviert sind, werden diese automatisch generiert
 
 *Beispiele:*
 - /filter #FFFFFF - Filtert Weiß
@@ -212,25 +138,12 @@ def help_command(update, context):
 - /filter - Entfernt den aktiven Filter
 
 *Hinweise:*
-- Produktbeschreibungen sind standardmäßig deaktiviert
 - Die Bildverarbeitung kann 30-60 Sekunden dauern
 - Bilder werden proportional skaliert und mit Transparenz aufgefüllt
 - Der Farbfilter hat eine Toleranz von ±10%
 """.strip()
    
    update.message.reply_text(help_text, parse_mode='Markdown')
-
-def description_on(update, context):
-   """Aktiviert Produktbeschreibungen für den User."""
-   user_id = update.effective_user.id
-   bot_data.description_enabled[user_id] = True
-   update.message.reply_text("Produktbeschreibungen sind jetzt aktiviert! 🟢")
-
-def description_off(update, context):
-   """Deaktiviert Produktbeschreibungen für den User."""
-   user_id = update.effective_user.id
-   bot_data.description_enabled[user_id] = False
-   update.message.reply_text("Produktbeschreibungen sind jetzt deaktiviert! 🔴")
 
 def process_image(update, context):
    """Verarbeitet das empfangene Bild."""
@@ -244,12 +157,6 @@ def process_image(update, context):
        response = requests.get(photo_file.file_path)
        input_data = response.content
        logger.info("Bild in Speicher geladen")
-       
-       # Produktdetails nur generieren wenn aktiviert
-       user_id = update.effective_user.id
-       product_details = None
-       if bot_data.description_enabled.get(user_id, False):
-           product_details = analyze_image(input_data)
        
        gc.collect()
        
@@ -266,7 +173,7 @@ def process_image(update, context):
                'alpha_matting_background_threshold': 10,
                'alpha_matting_erode_size': 5,
                'post_process_mask': True,
-               'bgcolor': color_filter  # Setzt die zu entfernende Farbe
+               'bgcolor': color_filter
            }
        else:
            kwargs = {
@@ -295,23 +202,6 @@ def process_image(update, context):
            filename='transparent_4500x5400.png'
        )
        
-       # Produktdetails senden wenn aktiviert
-       if bot_data.description_enabled.get(user_id, False) and product_details:
-           details_text = f"""
-🎨 *Product Details*
-*Design Title:* {product_details['design_title']}
-*Brand:* {product_details['brand']}
-
-📋 *Product Features*
-- {product_details['feature_1']}
-- {product_details['feature_2']}
-
-📝 *Description*
-{product_details['description']}
-           """.strip()
-           
-           update.message.reply_text(details_text, parse_mode='Markdown')
-       
        logger.info("Verarbeitung abgeschlossen")
        msg.delete()
        
@@ -332,8 +222,6 @@ def main():
    # Handler registrieren
    dp.add_handler(CommandHandler("start", start))
    dp.add_handler(CommandHandler("help", help_command))
-   dp.add_handler(CommandHandler("description_on", description_on))
-   dp.add_handler(CommandHandler("description_off", description_off))
    dp.add_handler(CommandHandler("filter", set_filter))
    dp.add_handler(MessageHandler(Filters.photo, process_image))
    
