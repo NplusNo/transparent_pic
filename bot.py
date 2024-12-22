@@ -179,26 +179,26 @@ def process_image(update, context):
        user_id = update.effective_user.id
        mode = bot_data.mode.get(user_id, 'transparent')  # Standard ist 'transparent'
        
+       # Basis-Parameter für rembg
+       kwargs = {
+           'alpha_matting': True,
+           'alpha_matting_foreground_threshold': 240,
+           'alpha_matting_background_threshold': 10,
+           'alpha_matting_erode_size': 5,
+           'post_process_mask': True
+       }
+       
        if mode == 'transparent':
            msg = update.message.reply_text("Erstelle transparentes Bild... (ca. 30-60 Sekunden)")
-           kwargs = {
-               'alpha_matting': True,
-               'alpha_matting_foreground_threshold': 240,
-               'alpha_matting_background_threshold': 10,
-               'alpha_matting_erode_size': 5,
-               'post_process_mask': True
-           }
        else:  # mode == 'filter'
            color = bot_data.color_filter.get(user_id)
+           if not color:
+               update.message.reply_text("Kein Farbfilter gesetzt. Bitte erst mit /filter #FARBCODE einen Filter setzen.")
+               return
            msg = update.message.reply_text(f"Filtere Farbe {color}... (ca. 30-60 Sekunden)")
-           kwargs = {
-               'alpha_matting': True,
-               'alpha_matting_foreground_threshold': 240,
-               'alpha_matting_background_threshold': 10,
-               'alpha_matting_erode_size': 5,
-               'post_process_mask': True,
-               'bgcolor': color
-           }
+           # Füge Farbfilter zu den Parametern hinzu
+           if color:
+               kwargs['bgcolor'] = color
        
        logger.info("Bild empfangen, starte Verarbeitung...")
        
@@ -212,8 +212,12 @@ def process_image(update, context):
        gc.collect()
        
        logger.info("Starte Hintergrundentfernung...")
-       output_data = remove(input_data, **kwargs)
-       logger.info("Hintergrund entfernt")
+       try:
+           output_data = remove(input_data, **kwargs)
+           logger.info("Hintergrund entfernt")
+       except Exception as e:
+           logger.error(f"Fehler bei der Hintergrundentfernung: {str(e)}")
+           raise
        
        # Bild in Pillow laden und resize
        img = Image.open(io.BytesIO(output_data))
@@ -225,9 +229,10 @@ def process_image(update, context):
        img_byte_arr.seek(0)
        
        # Bild senden
+       filename = 'transparent_4500x5400.png' if mode == 'transparent' else f'filtered_{color[1:]}_4500x5400.png'
        update.message.reply_document(
            document=img_byte_arr,
-           filename='transparent_4500x5400.png'
+           filename=filename
        )
        
        logger.info("Verarbeitung abgeschlossen")
