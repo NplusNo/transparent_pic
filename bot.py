@@ -22,8 +22,11 @@ print("Bot is starting up...")
 os.environ['U2NET_HOME'] = '/tmp/.u2net'
 os.environ['REMBG_MODEL'] = 'u2net_human_seg'
 
-# Telegram Bot Token
-TOKEN = os.getenv('TELEGRAM_TOKEN', 'IHR_TOKEN_HIER')
+# Telegram Bot Token - Sicherheit verbessert
+TOKEN = os.getenv('TELEGRAM_TOKEN')
+if not TOKEN:
+    print("FEHLER: Kein Telegram Token gefunden!")
+    exit(1)
 
 class BotData:
     def __init__(self):
@@ -170,6 +173,7 @@ def analyze_colors(update, context):
         f"Dominante Farben im Bild:\n{color_text}\n\n"
         "Verwende /filter #FARBCODE um eine dieser Farben zu behalten und den Rest zu entfernen."
     )
+
 def mode_transparent(update, context):
     """Setzt den Modus auf Transparenz."""
     user_id = update.effective_user.id
@@ -282,7 +286,7 @@ def process_image(update, context):
 def help_command(update, context):
     """Zeigt Hilfe-Text mit allen verfügbaren Commands."""
     help_text = """
-*Verfügbare Befehle:*
+<b>Verfügbare Befehle:</b>
 
 /start - Startet den Bot und zeigt die Willkommensnachricht
 /help - Zeigt diese Hilfe-Nachricht
@@ -292,7 +296,7 @@ def help_command(update, context):
 /filter - Ohne Farbcode entfernt den aktiven Filter
 /analyze_colors - Zeigt die dominanten Farben des letzten Bildes
 
-*Häufige Farben und ihre Codes:*
+<b>Häufige Farben und ihre Codes:</b>
 ⚪️ Weiß: #FFFFFF
 ⚫️ Schwarz: #000000
 🔴 Rot: #FF0000
@@ -314,18 +318,18 @@ def help_command(update, context):
 🤍 Cremeweiß: #FFFDD0
 ⚫️ Anthrazit: #293133
 
-*Modi:*
-1. *Transparent-Modus (Standard)*:
+<b>Modi:</b>
+1. <b>Transparent-Modus (Standard):</b>
    • Entfernt den Hintergrund komplett
    • Ersetzt ihn durch Transparenz
    • Aktivierung mit /mode_transparent
 
-2. *Filter-Modus*:
+2. <b>Filter-Modus:</b>
    • Filtert bestimmte Farben
    • Zeigt dominante Farben im Bild
    • Aktivierung mit /mode_filter
 
-*Beispiele:*
+<b>Beispiele:</b>
 1. Transparenter Hintergrund:
    • /mode_transparent
    • Bild senden
@@ -336,13 +340,13 @@ def help_command(update, context):
    • /mode_filter
    • Bild erneut senden
 
-*Hinweise:*
+<b>Hinweise:</b>
 - Die Bildverarbeitung kann 30-60 Sekunden dauern
 - Bilder werden auf 4500x5400px skaliert
 - Farbanalyse erfolgt automatisch bei jedem Bild
 """.strip()
     
-    update.message.reply_text(help_text, parse_mode='Markdown')
+    update.message.reply_text(help_text, parse_mode='HTML')
 
 def start(update, context):
     """Sendet eine Nachricht wenn der Befehl /start ausgegeben wird."""
