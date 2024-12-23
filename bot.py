@@ -30,9 +30,10 @@ if not TOKEN:
 
 class BotData:
     def __init__(self):
-        self.color_filter = {}  # Speichert den Farbfilter pro User
-        self.mode = {}  # 'transparent' oder 'filter'
-        self.last_colors = {}  # Speichert die letzten analysierten Farben pro User
+        self.color_filter = {}      # Speichert den Farbfilter pro User
+        self.filter_tolerance = {}  # Speichert die Toleranz pro User
+        self.mode = {}             # 'transparent' oder 'filter'
+        self.last_colors = {}      # Speichert die letzten analysierten Farben
 
 bot_data = BotData()
 
@@ -112,24 +113,26 @@ def analyze_dominant_colors(input_data, num_colors=25):
     
     return dominant_colors
 
-def simple_color_filter(input_data, target_color, tolerance=3):
+def improved_color_filter(input_data, target_color, tolerance_percent=0):
     """
-    Einfacher Farbfilter der nur die exakte Zielfarbe (mit minimaler Toleranz) entfernt.
+    Verbesserter Farbfilter mit einstellbarer Toleranz.
     
     Args:
         input_data: Bilddaten
         target_color: Hex-Farbcode (z.B. '#FFFFFF')
-        tolerance: Erlaubte Abweichung pro Farbkanal (Standard: 3)
+        tolerance_percent: Toleranz in Prozent (0-100)
     """
     # Zielfarbe in RGB
     target_r = int(target_color[1:3], 16)
     target_g = int(target_color[3:5], 16)
     target_b = int(target_color[5:7], 16)
     
-    # Originalbild laden
-    original = Image.open(io.BytesIO(input_data))
+    # Toleranz in RGB-Werte umrechnen (0-255)
+    # Bei 100% Toleranz werden Unterschiede bis zu 255 akzeptiert
+    max_diff = int((255 * tolerance_percent) / 100)
     
-    # Konvertierung in RGBA
+    # Originalbild laden und in RGBA konvertieren
+    original = Image.open(io.BytesIO(input_data))
     original = original.convert('RGBA')
     
     # Neues Bild mit Alphakanal
@@ -140,20 +143,32 @@ def simple_color_filter(input_data, target_color, tolerance=3):
     original_pixels = original.load()
     result_pixels = result.load()
     
+    def color_similarity(color1, target):
+        """Berechnet die Ähnlichkeit zwischen zwei Farben."""
+        r_diff = abs(color1[0] - target[0])
+        g_diff = abs(color1[1] - target[1])
+        b_diff = abs(color1[2] - target[2])
+        
+        # Gewichtete Differenz für bessere Wahrnehmung
+        # Menschliches Auge ist empfindlicher für Grün
+        weighted_diff = (r_diff * 0.3 + g_diff * 0.5 + b_diff * 0.2)
+        return weighted_diff
+
     # Jeden Pixel überprüfen
     for x in range(width):
         for y in range(height):
             pixel = original_pixels[x, y]
             r, g, b, a = pixel
             
-            # Prüfe ob der Pixel innerhalb der Toleranz zur Zielfarbe liegt
-            if (abs(r - target_r) <= tolerance and 
-                abs(g - target_g) <= tolerance and 
-                abs(b - target_b) <= tolerance):
-                # Wenn ja, mache ihn transparent
-                result_pixels[x, y] = (r, g, b, 0)
+            # Berechne Farbähnlichkeit
+            similarity = color_similarity((r, g, b), (target_r, target_g, target_b))
+            
+            if similarity <= max_diff:
+                # Je ähnlicher die Farbe, desto transparenter
+                alpha = int(max(0, 255 * (similarity / max_diff))) if max_diff > 0 else 0
+                result_pixels[x, y] = (r, g, b, alpha)
             else:
-                # Wenn nein, behalte den Pixel
+                # Farbe liegt außerhalb der Toleranz
                 result_pixels[x, y] = pixel
     
     return result
@@ -196,7 +211,8 @@ def analyze_colors(update, context):
     
     update.message.reply_text(
         f"Dominante Farben im Bild:\n{color_text}\n\n"
-        "Verwende /filter #FARBCODE um eine dieser Farben zu behalten und den Rest zu entfernen."
+        "Verwende /filter #FARBCODE [TOLERANZ] um eine dieser Farben zu filtern.\n"
+        "Die Toleranz ist optional (0-100) und bestimmt, wie großzügig gefiltert wird."
     )
 
 def mode_transparent(update, context):
@@ -209,24 +225,37 @@ def mode_filter(update, context):
     """Setzt den Modus auf Farbfilter."""
     user_id = update.effective_user.id
     if user_id not in bot_data.color_filter:
-        update.message.reply_text("Bitte setze zuerst einen Farbfilter mit /filter #FARBCODE")
+        update.message.reply_text("Bitte setze zuerst einen Farbfilter mit /filter #FARBCODE [TOLERANZ]")
         return
     bot_data.mode[user_id] = 'filter'
-    update.message.reply_text(f"Modus auf 'Farbfilter' gesetzt! 🎨\nAktiver Filter: {bot_data.color_filter[user_id]}")
+    tolerance = bot_data.filter_tolerance.get(user_id, 0)
+    update.message.reply_text(
+        f"Modus auf 'Farbfilter' gesetzt! 🎨\n"
+        f"Aktiver Filter: {bot_data.color_filter[user_id]} mit Toleranz {tolerance}%"
+    )
 
 def set_filter(update, context):
-    """Setzt den Farbfilter."""
+    """Setzt den Farbfilter und optional die Toleranz."""
     user_id = update.effective_user.id
     
     if not context.args:
         if user_id in bot_data.color_filter:
             del bot_data.color_filter[user_id]
+            del bot_data.filter_tolerance[user_id]
             bot_data.mode[user_id] = 'transparent'
             update.message.reply_text("Farbfilter wurde entfernt! ⚪️\nModus auf 'Transparent' zurückgesetzt.")
         else:
-            update.message.reply_text("Bitte gib einen Farbcode an, z.B. /filter #FFFFFF oder /filter zum Entfernen des Filters")
+            update.message.reply_text(
+                "Bitte gib einen Farbcode und optional die Toleranz (0-100) an.\n"
+                "Beispiele:\n"
+                "/filter #FFFFFF    (exakte Farbe)\n"
+                "/filter #FFFFFF 50 (mittlere Toleranz)\n"
+                "/filter #FFFFFF 100 (maximale Toleranz)\n"
+                "/filter           (Filter entfernen)"
+            )
         return
     
+    # Farbcode verarbeiten
     color = context.args[0].upper()
     if not color.startswith('#'):
         color = f"#{color}"
@@ -235,8 +264,26 @@ def set_filter(update, context):
         update.message.reply_text("Ungültiger Farbcode. Bitte nutze das Format #FFFFFF")
         return
     
+    # Toleranz verarbeiten
+    tolerance = 0  # Standardwert
+    if len(context.args) > 1:
+        try:
+            tolerance = int(context.args[1])
+            if tolerance < 0 or tolerance > 100:
+                update.message.reply_text("Toleranz muss zwischen 0 und 100 liegen.")
+                return
+        except ValueError:
+            update.message.reply_text("Ungültige Toleranz. Bitte gib eine Zahl zwischen 0 und 100 an.")
+            return
+    
+    # Werte speichern
     bot_data.color_filter[user_id] = color
-    update.message.reply_text(f"Farbfilter auf {color} gesetzt! 🎨\nNutze /mode_filter um den Filtermodus zu aktivieren.")
+    bot_data.filter_tolerance[user_id] = tolerance
+    
+    update.message.reply_text(
+        f"Farbfilter auf {color} gesetzt mit Toleranz {tolerance}%! 🎨\n"
+        "Nutze /mode_filter um den Filtermodus zu aktivieren."
+    )
 
 def process_image(update, context):
     """Verarbeitet das empfangene Bild."""
@@ -248,10 +295,11 @@ def process_image(update, context):
             msg = update.message.reply_text("Erstelle transparentes Bild... (ca. 30-60 Sekunden)")
         else:  # mode == 'filter'
             color = bot_data.color_filter.get(user_id)
+            tolerance = bot_data.filter_tolerance.get(user_id, 0)
             if not color:
-                update.message.reply_text("Kein Farbfilter gesetzt. Bitte erst mit /filter #FARBCODE einen Filter setzen.")
+                update.message.reply_text("Kein Farbfilter gesetzt. Bitte erst mit /filter #FARBCODE [TOLERANZ] einen Filter setzen.")
                 return
-            msg = update.message.reply_text(f"Filtere Farbe {color}... (ca. 30-60 Sekunden)")
+            msg = update.message.reply_text(f"Filtere Farbe {color} mit Toleranz {tolerance}%... (ca. 30-60 Sekunden)")
         
         logger.info("Bild empfangen, starte Verarbeitung...")
         
@@ -271,7 +319,7 @@ def process_image(update, context):
                            for i, color in enumerate(colors)])
         update.message.reply_text(
             f"Dominante Farben im Bild:\n{color_text}\n"
-            "Verwende diese Farbcodes mit dem /filter Befehl."
+            "Verwende /filter #FARBCODE [TOLERANZ] um eine dieser Farben zu filtern."
         )
         
         gc.collect()
@@ -280,10 +328,10 @@ def process_image(update, context):
         if mode == 'transparent':
             output_img = Image.open(io.BytesIO(remove(input_data)))
         else:
-            output_img = simple_color_filter(
+            output_img = improved_color_filter(
                 input_data,
                 bot_data.color_filter[user_id],
-                tolerance=3  # Sehr geringe Toleranz für exakte Übereinstimmung
+                tolerance_percent=bot_data.filter_tolerance.get(user_id, 0)
             )
         
         logger.info("Bildverarbeitung abgeschlossen")
@@ -297,7 +345,7 @@ def process_image(update, context):
         img_byte_arr.seek(0)
         
         # Bild senden
-        filename = 'transparent_4500x5400.png' if mode == 'transparent' else f'filtered_{bot_data.color_filter[user_id][1:]}_4500x5400.png'
+        filename = 'transparent_4500x5400.png' if mode == 'transparent' else f'filtered_{bot_data.color_filter[user_id][1:]}_tolerance_{bot_data.filter_tolerance.get(user_id, 0)}_4500x5400.png'
         update.message.reply_document(
             document=img_byte_arr,
             filename=filename
@@ -321,9 +369,20 @@ def help_command(update, context):
 /help - Zeigt diese Hilfe-Nachricht
 /mode_transparent - Aktiviert den Transparenz-Modus (Standard)
 /mode_filter - Aktiviert den Farbfilter-Modus
-/filter #FARBCODE - Setzt einen spezifischen Farbfilter (z.B. /filter #FFFFFF für Weiß)
-/filter - OhneFarbcode entfernt den aktiven Filter
+/filter #FARBCODE [TOLERANZ] - Setzt einen Farbfilter mit optionaler Toleranz
+/filter - Ohne Parameter entfernt den aktiven Filter
 /analyze_colors - Zeigt die dominanten Farben des letzten Bildes
+
+<b>Farbfilter-Toleranz:</b>
+Die Toleranz ist ein Wert zwischen 0 und 100:
+• 0 = Nur exakt die angegebene Farbe wird gefiltert
+• 50 = Moderate Toleranz für ähnliche Farbtöne
+• 100 = Maximale Toleranz, erfasst viele Farbvariationen
+
+Beispiele:
+/filter #FFFFFF 0   (Nur reines Weiß)
+/filter #FFFFFF 30  (Weiß und helle Grautöne)
+/filter #FFFFFF 100 (Alle hellen Farbtöne)
 
 <b>Häufige Farben und ihre Codes:</b>
 ⚪️ Weiß: #FFFFFF
@@ -354,26 +413,15 @@ def help_command(update, context):
    • Aktivierung mit /mode_transparent
 
 2. <b>Filter-Modus:</b>
-   • Filtert eine spezifische Farbe
-   • Macht nur exakt diese Farbe transparent
+   • Filtert eine bestimmte Farbe
+   • Toleranz einstellbar (0-100)
    • Aktivierung mit /mode_filter
-
-<b>Beispiele:</b>
-1. Transparenter Hintergrund:
-   • /mode_transparent
-   • Bild senden
-
-2. Bestimmte Farbe filtern:
-   • Bild senden (zeigt dominante Farben)
-   • /filter #FARBCODE (z.B. #FFFFFF für Weiß)
-   • /mode_filter
-   • Bild erneut senden
 
 <b>Hinweise:</b>
 - Die Bildverarbeitung kann 30-60 Sekunden dauern
 - Bilder werden auf 4500x5400px skaliert
 - Farbanalyse zeigt bis zu 25 dominante Farben
-- Der Farbfilter arbeitet sehr präzise und entfernt nur exakt die gewählte Farbe
+- Je höher die Toleranz, desto mehr Farbtöne werden gefiltert
 """.strip()
     
     update.message.reply_text(help_text, parse_mode='HTML')
