@@ -112,23 +112,25 @@ def analyze_dominant_colors(input_data, num_colors=25):
     
     return dominant_colors
 
-def advanced_color_filter(input_data, target_color, tolerance=50):
+def simple_color_filter(input_data, target_color, tolerance=3):
     """
-    Intelligente Farbfilterung mit Berücksichtigung von Farbübergängen
+    Einfacher Farbfilter der nur die exakte Zielfarbe (mit minimaler Toleranz) entfernt.
+    
+    Args:
+        input_data: Bilddaten
+        target_color: Hex-Farbcode (z.B. '#FFFFFF')
+        tolerance: Erlaubte Abweichung pro Farbkanal (Standard: 3)
     """
     # Zielfarbe in RGB
-    target_r, target_g, target_b = tuple(int(target_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-    
-    # Hintergrundentfernung für Maske
-    mask_data = remove(input_data, only_mask=True)
-    mask = Image.open(io.BytesIO(mask_data))
+    target_r = int(target_color[1:3], 16)
+    target_g = int(target_color[3:5], 16)
+    target_b = int(target_color[5:7], 16)
     
     # Originalbild laden
     original = Image.open(io.BytesIO(input_data))
     
     # Konvertierung in RGBA
     original = original.convert('RGBA')
-    mask = mask.convert('L')  # Graustufenmaske
     
     # Neues Bild mit Alphakanal
     result = Image.new('RGBA', original.size)
@@ -136,70 +138,23 @@ def advanced_color_filter(input_data, target_color, tolerance=50):
     # Pixel-Arrays
     width, height = original.size
     original_pixels = original.load()
-    mask_pixels = mask.load()
     result_pixels = result.load()
     
-    def color_distance(color1, color2):
-        """Berechnет Farbabstand mit Gewichtung"""
-        r_diff = abs(color1[0] - color2[0])
-        g_diff = abs(color1[1] - color2[1])
-        b_diff = abs(color1[2] - color2[2])
-        
-        # Gewichtete Differenz mit Fokus auf Helligkeit und Sättigung
-        return (r_diff * 0.3 + g_diff * 0.5 + b_diff * 0.2)
-    
-    def is_pastel_or_light(pixel):
-        """Erkennt Pastellfarben und helle Farben"""
-        r, g, b = pixel[:3]
-        # Hohe Helligkeit oder niedrige Sättigung
-        brightness = (r + g + b) / 3
-        saturation = max(r, g, b) - min(r, g, b)
-        return (brightness > 200 or saturation < 50)
-    
-    # Durchsuche das Bild nach der Hauptkomponentenfarbe
-    main_color_pixels = []
+    # Jeden Pixel überprüfen
     for x in range(width):
         for y in range(height):
-            if mask_pixels[x, y] > 128:  # Vordergrund
-                pixel = original_pixels[x, y]
-                
-                # Prüfe Nähe zur Zielfarbe und ignoriere helle/Pastellfarben
-                if (color_distance(pixel[:3], (target_r, target_g, target_b)) < tolerance and 
-                    not is_pastel_or_light(pixel)):
-                    main_color_pixels.append(pixel)
-    
-    # Filtere und behalte die Hauptkomponentenfarbe
-    for x in range(width):
-        for y in range(height):
-            if mask_pixels[x, y] > 128:  # Vordergrund
-                pixel = original_pixels[x, y]
-                
-                # Standardmäßig transparent
-                alpha = 0
-                
-                # Prüfe Nähe zur Zielfarbe
-                color_diff = color_distance(pixel[:3], (target_r, target_g, target_b))
-                
-                # Behandle Pixel basierend auf Farbabstand und Eigenschaften
-                if main_color_pixels and color_distance(pixel[:3], tuple(main_color_pixels[0][:3])) < 20:
-                    # Pixel der Hauptkomponente
-                    alpha = 255
-                elif (color_diff < tolerance and 
-                      not is_pastel_or_light(pixel) and 
-                      color_distance(pixel[:3], (target_r, target_g, target_b)) > 10):
-                    # Ähnliche, aber nicht identische Farben mit Sättigung
-                    alpha = max(0, 255 - int(color_diff * 3))
-                
-                # Pixel setzen
-                result_pixels[x, y] = (
-                    pixel[0], 
-                    pixel[1], 
-                    pixel[2], 
-                    alpha
-                )
+            pixel = original_pixels[x, y]
+            r, g, b, a = pixel
+            
+            # Prüfe ob der Pixel innerhalb der Toleranz zur Zielfarbe liegt
+            if (abs(r - target_r) <= tolerance and 
+                abs(g - target_g) <= tolerance and 
+                abs(b - target_b) <= tolerance):
+                # Wenn ja, mache ihn transparent
+                result_pixels[x, y] = (r, g, b, 0)
             else:
-                # Hintergrund vollständig transparent
-                result_pixels[x, y] = (0, 0, 0, 0)
+                # Wenn nein, behalte den Pixel
+                result_pixels[x, y] = pixel
     
     return result
 
@@ -325,11 +280,11 @@ def process_image(update, context):
         if mode == 'transparent':
             output_img = Image.open(io.BytesIO(remove(input_data)))
         else:
-            output_img = advanced_color_filter(
-            input_data, 
-            bot_data.color_filter[user_id], 
-            tolerance=40  # Experimentieren Sie mit diesem Wert
-        )
+            output_img = simple_color_filter(
+                input_data,
+                bot_data.color_filter[user_id],
+                tolerance=3  # Sehr geringe Toleranz für exakte Übereinstimmung
+            )
         
         logger.info("Bildverarbeitung abgeschlossen")
         
@@ -367,7 +322,7 @@ def help_command(update, context):
 /mode_transparent - Aktiviert den Transparenz-Modus (Standard)
 /mode_filter - Aktiviert den Farbfilter-Modus
 /filter #FARBCODE - Setzt einen spezifischen Farbfilter (z.B. /filter #FFFFFF für Weiß)
-/filter - Ohne Farbcode entfernt den aktiven Filter
+/filter - OhneFarbcode entfernt den aktiven Filter
 /analyze_colors - Zeigt die dominanten Farben des letzten Bildes
 
 <b>Häufige Farben und ihre Codes:</b>
@@ -399,8 +354,8 @@ def help_command(update, context):
    • Aktivierung mit /mode_transparent
 
 2. <b>Filter-Modus:</b>
-   • Filtert bestimmte Farben
-   • Zeigt dominante Farben im Bild
+   • Filtert eine spezifische Farbe
+   • Macht nur exakt diese Farbe transparent
    • Aktivierung mit /mode_filter
 
 <b>Beispiele:</b>
@@ -410,14 +365,15 @@ def help_command(update, context):
 
 2. Bestimmte Farbe filtern:
    • Bild senden (zeigt dominante Farben)
-   • /filter #FARBCODE
+   • /filter #FARBCODE (z.B. #FFFFFF für Weiß)
    • /mode_filter
    • Bild erneut senden
 
 <b>Hinweise:</b>
 - Die Bildverarbeitung kann 30-60 Sekunden dauern
 - Bilder werden auf 4500x5400px skaliert
-- Farbanalyse erfolgt automatisch bei jedem Bild
+- Farbanalyse zeigt bis zu 25 dominante Farben
+- Der Farbfilter arbeitet sehr präzise und entfernt nur exakt die gewählte Farbe
 """.strip()
     
     update.message.reply_text(help_text, parse_mode='HTML')
