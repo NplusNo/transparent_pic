@@ -36,6 +36,82 @@ class BotData:
 
 bot_data = BotData()
 
+def get_color_name(rgb):
+    """Bestimmt den Namen einer Farbe basierend auf RGB-Werten."""
+    r, g, b = rgb
+    
+    # Helligkeit und Sättigung berechnen
+    brightness = (r + g + b) / 3
+    max_val = max(r, g, b)
+    min_val = min(r, g, b)
+    saturation = (max_val - min_val) / max_val if max_val != 0 else 0
+    
+    # Grundfarben definieren
+    if max_val < 30:
+        return "Schwarz"
+    elif brightness > 240:
+        return "Weiß"
+    elif saturation < 0.1:
+        if brightness < 128:
+            return "Dunkelgrau"
+        else:
+            return "Hellgrau"
+    
+    # Farbton bestimmen
+    if r > max(g, b):
+        if g > b:
+            if saturation > 0.8:
+                return "Leuchtendes Rot"
+            return "Rot-Orange" if g > r/2 else "Rot"
+        else:
+            if saturation > 0.8:
+                return "Magenta"
+            return "Pink" if b > r/2 else "Dunkelrot"
+    elif g > max(r, b):
+        if r > b:
+            return "Gelbgrün" if r > g/2 else "Hellgrün"
+        else:
+            return "Türkis" if b > g/2 else "Grün"
+    else:
+        if r > g:
+            return "Violett" if r > b/2 else "Lila"
+        else:
+            return "Cyanblau" if g > b/2 else "Blau"
+
+def analyze_dominant_colors(input_data, num_colors=25):
+    """Analysiert die dominanten Farben im Bild."""
+    # Bild laden
+    img = Image.open(io.BytesIO(input_data))
+    img = img.convert('RGB')
+    
+    # Bild verkleinern für schnellere Verarbeitung
+    img.thumbnail((200, 200))
+    
+    # Pixel sammeln
+    pixels = list(img.getdata())
+    
+    # Farben zählen mit verbesserter Gruppierung
+    color_counts = {}
+    for pixel in pixels:
+        # Feinere Gruppierung für mehr Farbvariationen
+        rounded = (round(pixel[0]/5)*5, 
+                  round(pixel[1]/5)*5, 
+                  round(pixel[2]/5)*5)
+        color_counts[rounded] = color_counts.get(rounded, 0) + 1
+    
+    # Nach Häufigkeit sortieren
+    sorted_colors = sorted(color_counts.items(), key=lambda x: x[1], reverse=True)
+    
+    # Konvertiere zu Hex und formatiere
+    dominant_colors = []
+    for color, count in sorted_colors[:num_colors]:
+        hex_color = '#{:02x}{:02x}{:02x}'.format(color[0], color[1], color[2])
+        percentage = (count / len(pixels)) * 100
+        color_name = get_color_name(color)
+        dominant_colors.append((hex_color, percentage, color_name))
+    
+    return dominant_colors
+
 def advanced_color_filter(input_data, target_color, tolerance=50):
     """
     Intelligente Farbfilterung mit Berücksichtigung von Farbübergängen
@@ -152,39 +228,6 @@ def resize_with_padding(image, target_size):
     
     return padded_image
 
-def analyze_dominant_colors(input_data, num_colors=3):
-    """Analysiert die dominanten Farben im Bild."""
-    # Bild laden
-    img = Image.open(io.BytesIO(input_data))
-    img = img.convert('RGB')
-    
-    # Bild verkleinern für schnellere Verarbeitung
-    img.thumbnail((150, 150))
-    
-    # Pixel sammeln
-    pixels = list(img.getdata())
-    
-    # Farben zählen
-    color_counts = {}
-    for pixel in pixels:
-        # Gruppiere ähnliche Farben
-        rounded = (round(pixel[0]/10)*10, 
-                  round(pixel[1]/10)*10, 
-                  round(pixel[2]/10)*10)
-        color_counts[rounded] = color_counts.get(rounded, 0) + 1
-    
-    # Nach Häufigkeit sortieren
-    sorted_colors = sorted(color_counts.items(), key=lambda x: x[1], reverse=True)
-    
-    # Konvertiere zu Hex und formatiere
-    dominant_colors = []
-    for color, count in sorted_colors[:num_colors]:
-        hex_color = '#{:02x}{:02x}{:02x}'.format(color[0], color[1], color[2])
-        percentage = (count / len(pixels)) * 100
-        dominant_colors.append((hex_color, percentage))
-    
-    return dominant_colors
-
 def analyze_colors(update, context):
     """Analysiert die dominanten Farben im letzten Bild."""
     user_id = update.effective_user.id
@@ -193,7 +236,7 @@ def analyze_colors(update, context):
         return
     
     colors = bot_data.last_colors[user_id]
-    color_text = "\n".join([f"Farbe {i+1}: {color[0]} ({color[1]:.1f}%)" 
+    color_text = "\n".join([f"Farbe {i+1}: {color[0]} ({color[1]:.1f}%) - {color[2]}" 
                            for i, color in enumerate(colors)])
     
     update.message.reply_text(
@@ -269,8 +312,8 @@ def process_image(update, context):
         
         # Info über dominante Farben senden
         colors = bot_data.last_colors[user_id]
-        color_text = "\n".join([f"Farbe {i+1}: {color[0]} ({color[1]:.1f}%)" 
-                               for i, color in enumerate(colors)])
+        color_text = "\n".join([f"Farbe {i+1}: {color[0]} ({color[1]:.1f}%) - {color[2]}" 
+                           for i, color in enumerate(colors)])
         update.message.reply_text(
             f"Dominante Farben im Bild:\n{color_text}\n"
             "Verwende diese Farbcodes mit dem /filter Befehl."
