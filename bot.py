@@ -36,17 +36,11 @@ class BotData:
 
 bot_data = BotData()
 
-def advanced_color_filter(input_data, target_color, tolerance=50, edge_softness=15):
+def advanced_color_filter(input_data, target_color, tolerance=50):
     """
-    Fortschrittliche Farbfilterung mit intelligenter Hauptkomponentenanalyse
-    
-    :param input_data: Bilddaten
-    :param target_color: Zu filternde Grundfarbe
-    :param tolerance: Farbtoleranz
-    :param edge_softness: Weichheit der Bildränder
-    :return: Gefiltertes Bild
+    Intelligente Farbfilterung mit Berücksichtigung von Farbübergängen
     """
-    # Farbe in RGB umwandeln
+    # Zielfarbe in RGB
     target_r, target_g, target_b = tuple(int(target_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
     
     # Hintergrundentfernung für Maske
@@ -69,56 +63,56 @@ def advanced_color_filter(input_data, target_color, tolerance=50, edge_softness=
     mask_pixels = mask.load()
     result_pixels = result.load()
     
-    def color_similarity(color1, color2):
-        """Berechnet Farbähnlichkeit mit gewichteter Differenz"""
+    def color_distance(color1, color2):
+        """Berechnет Farbabstand mit Gewichtung"""
         r_diff = abs(color1[0] - color2[0])
         g_diff = abs(color1[1] - color2[1])
         b_diff = abs(color1[2] - color2[2])
         
-        # Gewichtete Differenz mit mehr Gewicht auf Helligkeit
-        return (r_diff * 0.3 + g_diff * 0.6 + b_diff * 0.1)
+        # Gewichtete Differenz mit Fokus auf Helligkeit und Sättigung
+        return (r_diff * 0.3 + g_diff * 0.5 + b_diff * 0.2)
     
-    def is_edge_pixel(x, y):
-        """Erkennt Randpixel"""
-        edge_threshold = min(width, height) * 0.05  # 5% Randbereich
-        return (x < edge_threshold or x > width - edge_threshold or 
-                y < edge_threshold or y > height - edge_threshold)
+    def is_pastel_or_light(pixel):
+        """Erkennt Pastellfarben und helle Farben"""
+        r, g, b = pixel[:3]
+        # Hohe Helligkeit oder niedrige Sättigung
+        brightness = (r + g + b) / 3
+        saturation = max(r, g, b) - min(r, g, b)
+        return (brightness > 200 or saturation < 50)
     
-    # Hauptkomponentenfarbe bestimmen
-    main_color_candidates = []
-    for x in range(width):
-        for y in range(height):
-            if mask_pixels[x, y] > 128:  # Vordergrund
-                pixel = original_pixels[x, y]
-                if color_similarity((pixel[0], pixel[1], pixel[2]), (target_r, target_g, target_b)) < tolerance:
-                    main_color_candidates.append(pixel)
-    
-    # Häufigste Farbe als Hauptkomponente
-    if main_color_candidates:
-        from collections import Counter
-        main_color = Counter(main_color_candidates).most_common(1)[0][0]
-    else:
-        main_color = (target_r, target_g, target_b)
-    
-    # Erweiterte Filterung
+    # Durchsuche das Bild nach der Hauptkomponentenfarbe
+    main_color_pixels = []
     for x in range(width):
         for y in range(height):
             if mask_pixels[x, y] > 128:  # Vordergrund
                 pixel = original_pixels[x, y]
                 
-                # Ähnlichkeit zur Hauptkomponente
-                color_diff = color_similarity(pixel, main_color)
+                # Prüfe Nähe zur Zielfarbe und ignoriere helle/Pastellfarben
+                if (color_distance(pixel[:3], (target_r, target_g, target_b)) < tolerance and 
+                    not is_pastel_or_light(pixel)):
+                    main_color_pixels.append(pixel)
+    
+    # Filtere und behalte die Hauptkomponentenfarbe
+    for x in range(width):
+        for y in range(height):
+            if mask_pixels[x, y] > 128:  # Vordergrund
+                pixel = original_pixels[x, y]
                 
-                # Dynamische Transparenz
-                if color_diff > tolerance:
-                    # Randbehandlung
-                    if is_edge_pixel(x, y):
-                        alpha = max(0, 255 - int(color_diff * 2.5))
-                    else:
-                        alpha = max(0, 255 - int(color_diff * 3))
-                else:
+                # Standardmäßig transparent
+                alpha = 0
+                
+                # Prüfe Nähe zur Zielfarbe
+                color_diff = color_distance(pixel[:3], (target_r, target_g, target_b))
+                
+                # Behandle Pixel basierend auf Farbabstand und Eigenschaften
+                if main_color_pixels and color_distance(pixel[:3], tuple(main_color_pixels[0][:3])) < 20:
                     # Pixel der Hauptkomponente
                     alpha = 255
+                elif (color_diff < tolerance and 
+                      not is_pastel_or_light(pixel) and 
+                      color_distance(pixel[:3], (target_r, target_g, target_b)) > 10):
+                    # Ähnliche, aber nicht identische Farben mit Sättigung
+                    alpha = max(0, 255 - int(color_diff * 3))
                 
                 # Pixel setzen
                 result_pixels[x, y] = (
@@ -289,11 +283,10 @@ def process_image(update, context):
             output_img = Image.open(io.BytesIO(remove(input_data)))
         else:
             output_img = advanced_color_filter(
-                input_data, 
-                bot_data.color_filter[user_id], 
-                tolerance=40,  # Anpassbare Toleranz
-                edge_softness=15  # Weichheit der Kanten
-            )
+            input_data, 
+            bot_data.color_filter[user_id], 
+            tolerance=40  # Experimentieren Sie mit diesem Wert
+        )
         
         logger.info("Bildverarbeitung abgeschlossen")
         
