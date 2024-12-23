@@ -36,14 +36,14 @@ class BotData:
 
 bot_data = BotData()
 
-def advanced_color_filter(input_data, target_color, tolerance=50, edge_softness=10):
+def advanced_color_filter(input_data, target_color, tolerance=50, edge_softness=15):
     """
-    Fortschrittliche Farbfilterung mit weichen Bildrändern
+    Fortschrittliche Farbfilterung mit intelligenter Hauptkomponentenanalyse
     
     :param input_data: Bilddaten
     :param target_color: Zu filternde Grundfarbe
     :param tolerance: Farbtoleranz
-    :param edge_softness: Weichheit der Bildränder (0-100)
+    :param edge_softness: Weichheit der Bildränder
     :return: Gefiltertes Bild
     """
     # Farbe in RGB umwandeln
@@ -69,50 +69,63 @@ def advanced_color_filter(input_data, target_color, tolerance=50, edge_softness=
     mask_pixels = mask.load()
     result_pixels = result.load()
     
-    def color_distance(color1, color2):
-        """Berechnet Farbabstand"""
-        return max(abs(color1[0] - color2[0]), 
-                   abs(color1[1] - color2[1]), 
-                   abs(color1[2] - color2[2]))
+    def color_similarity(color1, color2):
+        """Berechnet Farbähnlichkeit mit gewichteter Differenz"""
+        r_diff = abs(color1[0] - color2[0])
+        g_diff = abs(color1[1] - color2[1])
+        b_diff = abs(color1[2] - color2[2])
+        
+        # Gewichtete Differenz mit mehr Gewicht auf Helligkeit
+        return (r_diff * 0.3 + g_diff * 0.6 + b_diff * 0.1)
     
-    # Erweiterte Kantenerkennung und Weichzeichnung
+    def is_edge_pixel(x, y):
+        """Erkennt Randpixel"""
+        edge_threshold = min(width, height) * 0.05  # 5% Randbereich
+        return (x < edge_threshold or x > width - edge_threshold or 
+                y < edge_threshold or y > height - edge_threshold)
+    
+    # Hauptkomponentenfarbe bestimmen
+    main_color_candidates = []
     for x in range(width):
         for y in range(height):
-            # Maske und Vordergrund
-            if mask_pixels[x, y] > 128:
+            if mask_pixels[x, y] > 128:  # Vordergrund
+                pixel = original_pixels[x, y]
+                if color_similarity((pixel[0], pixel[1], pixel[2]), (target_r, target_g, target_b)) < tolerance:
+                    main_color_candidates.append(pixel)
+    
+    # Häufigste Farbe als Hauptkomponente
+    if main_color_candidates:
+        from collections import Counter
+        main_color = Counter(main_color_candidates).most_common(1)[0][0]
+    else:
+        main_color = (target_r, target_g, target_b)
+    
+    # Erweiterte Filterung
+    for x in range(width):
+        for y in range(height):
+            if mask_pixels[x, y] > 128:  # Vordergrund
                 pixel = original_pixels[x, y]
                 
-                # Farbabstand zur Zielfarbe
-                color_diff = color_distance(pixel, (target_r, target_g, target_b))
+                # Ähnlichkeit zur Hauptkomponente
+                color_diff = color_similarity(pixel, main_color)
                 
-                # Dynamische Transparenz basierend auf Kantennähe und Farbabstand
-                alpha = 255  # Standard: vollständig sichtbar
-                
-                # Kantenbereich
-                edge_distance = min(
-                    x, y,                 # Linker und oberer Rand
-                    width - x - 1,        # Rechter Rand
-                    height - y - 1        # Unterer Rand
-                )
-                
-                # Weichzeichnung an Bildrändern
-                if edge_distance < edge_softness:
-                    # Graduelle Transparenz an Rändern
-                    edge_factor = edge_distance / edge_softness
-                    alpha = int(255 * edge_factor)
-                
-                # Farbfilterung mit dynamischer Transparenz
-                if color_diff < tolerance:
-                    # Sehr ähnliche Farben werden schrittweise transparent
-                    alpha_reduction = int(255 * (color_diff / tolerance))
-                    alpha = min(alpha, alpha_reduction)
+                # Dynamische Transparenz
+                if color_diff > tolerance:
+                    # Randbehandlung
+                    if is_edge_pixel(x, y):
+                        alpha = max(0, 255 - int(color_diff * 2.5))
+                    else:
+                        alpha = max(0, 255 - int(color_diff * 3))
+                else:
+                    # Pixel der Hauptkomponente
+                    alpha = 255
                 
                 # Pixel setzen
                 result_pixels[x, y] = (
                     pixel[0], 
                     pixel[1], 
                     pixel[2], 
-                    max(0, alpha)  # Transparenz
+                    alpha
                 )
             else:
                 # Hintergrund vollständig transparent
