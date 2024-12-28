@@ -1,5 +1,4 @@
 import os
-<<<<<<< HEAD
 import io
 from PIL import Image
 import requests
