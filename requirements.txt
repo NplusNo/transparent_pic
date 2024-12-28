@@ -2,16 +2,12 @@ python-telegram-bot==13.7
 Pillow==9.5.0
 torch==2.0.0+cpu
 torchvision==0.15.0+cpu
-<<<<<<< HEAD
 rembg[u2net]==2.0.50
 numpy==1.24.3
 requests==2.31.0
 google-cloud-vision==3.4.4
 torch==2.0.0
 torchvision==0.15.0
-=======
---extra-index-url https://download.pytorch.org/whl/cpu
->>>>>>> 4616d1a (Update torch requirements to CPU version)
 rembg==2.0.50
 numpy==1.24.3
 requests==2.31.0
