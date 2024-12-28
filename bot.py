@@ -174,31 +174,6 @@ def improved_color_filter(input_data, target_color, tolerance_percent=0):
     
     return result
 
-def resize_with_padding(image, target_size):
-    """Resize image maintaining aspect ratio and pad with transparency."""
-    original_width, original_height = image.size
-    aspect_ratio = original_width / original_height
-    
-    if aspect_ratio > target_size[0] / target_size[1]:
-        new_width = target_size[0]
-        new_height = int(new_width / aspect_ratio)
-    else:
-        new_height = target_size[1]
-        new_width = int(new_height * aspect_ratio)
-    
-    # Bild proportional skalieren
-    resized_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-    
-    # Neues transparentes Bild mit Zielgröße erstellen
-    padded_image = Image.new('RGBA', target_size, (0, 0, 0, 0))
-    
-    # Skaliertes Bild in die Mitte des neuen Bildes einfügen
-    x_offset = (target_size[0] - new_width) // 2
-    y_offset = (target_size[1] - new_height) // 2
-    padded_image.paste(resized_image, (x_offset, y_offset))
-    
-    return padded_image
-
 def resize_with_positioning(image, target_size, x_percent=50, y_percent=50):
     """
     Resize image maintaining aspect ratio and position it precisely within target size.
@@ -237,6 +212,33 @@ def resize_with_positioning(image, target_size, x_percent=50, y_percent=50):
     padded_image.paste(resized_image, (x_offset, y_offset))
     
     return padded_image
+
+def start(update, context):
+    """Sendet eine Nachricht wenn der Befehl /start ausgegeben wird."""
+    logger.info("Received /start command")
+    user_id = update.effective_user.id
+    bot_data.mode[user_id] = 'transparent'  # Standard: Transparenz
+    update.message.reply_text(
+        'Hallo! Sende mir ein Bild und ich werde den Hintergrund transparent machen.\n'
+        'Nutze /help um alle verfügbaren Befehle zu sehen.'
+    )
+
+def help_command(update, context):
+    """Zeigt Hilfe-Text mit allen verfügbaren Commands."""
+    help_text = """
+<b>Verfügbare Befehle:</b>
+
+/start - Startet den Bot und zeigt die Willkommensnachricht
+/help - Zeigt diese Hilfe-Nachricht
+/mode_transparent - Aktiviert den Transparenz-Modus (Standard)
+/mode_filter - Aktiviert den Farbfilter-Modus
+/filter #FARBCODE [TOLERANZ] - Setzt einen Farbfilter mit optionaler Toleranz
+/filter - Ohne Parameter entfernt den aktiven Filter
+/analyze_colors - Zeigt die dominanten Farben des letzten Bildes
+/position X Y - Positioniert das Bild im 4500x5400 Format
+""".strip()
+    
+    update.message.reply_text(help_text, parse_mode='HTML')
 
 def set_positioning(update, context):
     """
@@ -281,7 +283,184 @@ def set_positioning(update, context):
             "- 50/30: Leicht nach oben verschoben"
         )
 
-# [Rest of the existing functions remain the same]
+def analyze_colors(update, context):
+    """Analysiert die dominanten Farben im letzten Bild."""
+    user_id = update.effective_user.id
+    if user_id not in bot_data.last_colors:
+        update.message.reply_text("Bitte sende erst ein Bild, bevor du die Farben analysierst.")
+        return
+    
+    colors = bot_data.last_colors[user_id]
+    color_text = "\n".join([f"Farbe {i+1}: {color[0]} ({color[1]:.1f}%) - {color[2]}" 
+                           for i, color in enumerate(colors)])
+    
+    update.message.reply_text(
+        f"Dominante Farben im Bild:\n{color_text}\n\n"
+        "Verwende /filter #FARBCODE [TOLERANZ] um eine dieser Farben zu filtern.\n"
+        "Die Toleranz ist optional (0-100) und bestimmt, wie großzügig gefiltert wird."
+    )
+
+def mode_transparent(update, context):
+    """Setzt den Modus auf Transparenz."""
+    user_id = update.effective_user.id
+    bot_data.mode[user_id] = 'transparent'
+    update.message.reply_text("Modus auf 'Transparent' gesetzt! 🌟\nBilder werden jetzt mit transparentem Hintergrund erstellt.")
+
+def mode_filter(update, context):
+    """Setzt den Modus auf Farbfilter."""
+    user_id = update.effective_user.id
+    if user_id not in bot_data.color_filter:
+        update.message.reply_text("Bitte setze zuerst einen Farbfilter mit /filter #FARBCODE [TOLERANZ]")
+        return
+    bot_data.mode[user_id] = 'filter'
+    tolerance = bot_data.filter_tolerance.get(user_id, 0)
+    update.message.reply_text(
+        f"Modus auf 'Farbfilter' gesetzt! 🎨\n"
+        f"Aktiver Filter: {bot_data.color_filter[user_id]} mit Toleranz {tolerance}%"
+    )
+
+def set_filter(update, context):
+    """Setzt den Farbfilter und optional die Toleranz."""
+    user_id = update.effective_user.id
+    
+    if not context.args:
+        if user_id in bot_data.color_filter:
+            del bot_data.color_filter[user_id]
+            del bot_data.filter_tolerance[user_id]
+            bot_data.mode[user_id] = 'transparent'
+            update.message.reply_text("Farbfilter wurde entfernt! ⚪️\nModus auf 'Transparent' zurückgesetzt.")
+        else:
+            update.message.reply_text(
+                "Bitte gib einen Farbcode und optional die Toleranz (0-100) an.\n"
+                "Beispiele:\n"
+                "/filter #FFFFFF    (exakte Farbe)\n"
+                "/filter #FFFFFF 50 (mittlere Toleranz)\n"
+                "/filter #FFFFFF 100 (maximale Toleranz)\n"
+                "/filter           (Filter entfernen)"
+            )
+        return
+    
+    # Farbcode verarbeiten
+    color = context.args[0].upper()
+    if not color.startswith('#'):
+        color = f"#{color}"
+    
+    if len(color) != 7 or not all(c in '0123456789ABCDEF#' for c in color):
+        update.message.reply_text("Ungültiger Farbcode. Bitte nutze das Format #FFFFFF")
+        return
+    
+    # Toleranz verarbeiten
+    tolerance = 0  # Standardwert
+    if len(context.args) > 1:
+        try:
+            tolerance = int(context.args[1])
+            if tolerance < 0 or tolerance > 100:
+                update.message.reply_text("Toleranz muss zwischen 0 und 100 liegen.")
+                return
+        except ValueError:
+            update.message.reply_text("Ungültige Toleranz. Bitte gib eine Zahl zwischen 0 und 100 an.")
+            return
+    
+    # Werte speichern
+    bot_data.color_filter[user_id] = color
+    bot_data.filter_tolerance[user_id] = tolerance
+    
+    update.message.reply_text(
+        f"Farbfilter auf {color} gesetzt mit Toleranz {tolerance}%! 🎨\n"
+        "Nutze /mode_filter um den Filtermodus zu aktivieren."
+    )
+
+def process_image(update, context):
+    """Verarbeitet das empfangene Bild."""
+    try:
+        user_id = update.effective_user.id
+        mode = bot_data.mode.get(user_id, 'transparent')
+        
+        # Positionierung abrufen (Standard: zentriert)
+        position = bot_data.image_position.get(user_id, {'x_percent': 50, 'y_percent': 50})
+        
+        if mode == 'transparent':
+            msg = update.message.reply_text("Erstelle transparentes Bild... (ca. 30-60 Sekunden)")
+        else:  # mode == 'filter'
+            color = bot_data.color_filter.get(user_id)
+            tolerance = bot_data.filter_tolerance.get(user_id, 0)
+            if not color:
+                update.message.reply_text("Kein Farbfilter gesetzt. Bitte erst mit /filter #FARBCODE [TOLERANZ] einen Filter setzen.")
+                return
+            msg = update.message.reply_text(
+                f"Filtere Farbe {color} mit Toleranz {tolerance}%... (ca. 30-60 Sekunden)\n"
+                f"Positionierung: Horizontal {position['x_percent']}%, Vertikal {position['y_percent']}%"
+            )
+        
+        logger.info("Bild empfangen, starte Verarbeitung...")
+        
+        photo_file = update.message.photo[-1].get_file()
+        logger.info("Bild heruntergeladen")
+        
+        response = requests.get(photo_file.file_path)
+        input_data = response.content
+        logger.info("Bild in Speicher geladen")
+        
+        # Dominante Farben analysieren und speichern
+        bot_data.last_colors[user_id] = analyze_dominant_colors(input_data)
+        
+        # Info über dominante Farben senden
+        colors = bot_data.last_colors[user_id]
+        color_text = "\n".join([f"Farbe {i+1}: {color[0]} ({color[1]:.1f}%) - {color[2]}" 
+                           for i, color in enumerate(colors)])
+        update.message.reply_text(
+            f"Dominante Farben im Bild:\n{color_text}\n"
+            f"Aktuelle Positionierung: Horizontal {position['x_percent']}%, Vertikal {position['y_percent']}%\n"
+            "Verwende /filter #FARBCODE [TOLERANZ] um eine dieser Farben zu filtern.\n"
+            "Verwende /position X_PROZENT Y_PROZENT für eine andere Bildpositionierung."
+        )
+        
+        gc.collect()
+        
+        logger.info("Starte Bildverarbeitung...")
+        if mode == 'transparent':
+            output_img = Image.open(io.BytesIO(remove(input_data)))
+        else:
+            output_img = improved_color_filter(
+                input_data,
+                bot_data.color_filter[user_id],
+                tolerance_percent=bot_data.filter_tolerance.get(user_id, 0)
+            )
+        
+        logger.info("Bildverarbeitung abgeschlossen")
+        
+        # Resize mit neuer Positionierungsmethode
+        resized_img = resize_with_positioning(
+            output_img, 
+            (4500, 5400), 
+            x_percent=position['x_percent'],
+            y_percent=position['y_percent']
+        )
+        
+        # In Bytes umwandeln
+        img_byte_arr = io.BytesIO()
+        resized_img.save(img_byte_arr, format='PNG')
+        img_byte_arr.seek(0)
+        
+        # Bild senden
+        filename = (
+            f'transparent_4500x5400_pos_{position["x_percent"]}x{position["y_percent"]}.png' 
+            if mode == 'transparent' 
+            else f'filtered_{bot_data.color_filter[user_id][1:]}_tolerance_{bot_data.filter_tolerance.get(user_id, 0)}_pos_{position["x_percent"]}x{position["y_percent"]}_4500x5400.png'
+        )
+        update.message.reply_document(
+            document=img_byte_arr,
+            filename=filename
+        )
+        
+        logger.info("Verarbeitung abgeschlossen")
+        msg.delete()
+        
+    except Exception as e:
+        error_msg = f"Fehler aufgetreten: {str(e)}"
+        logger.error(error_msg)
+        update.message.reply_text(error_msg)
+        gc.collect()
 
 def main():
     """Startet den Bot."""
