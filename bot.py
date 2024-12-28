@@ -1,4 +1,5 @@
 import os
+<<<<<<< HEAD
 import io
 from PIL import Image
 import requests
@@ -293,19 +294,32 @@ import torch
 from torchvision import transforms
 from rembg import remove
 import numpy as np
+=======
+>>>>>>> 7d16231 (Update bot with debug logs)
 import io
+import requests
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from rembg import remove
 
-# Telegram Bot Token aus Umgebungsvariable
-TOKEN = os.getenv('TELEGRAM_TOKEN')
+# Kleineres Modell verwenden
+os.environ['REMBG_MODEL'] = 'u2netp'
+
+# Telegram Bot Token
+TOKEN = os.getenv('TELEGRAM_TOKEN', 'IHR_TOKEN_HIER')
 
 def start(update, context):
     """Sendet eine Nachricht wenn der Befehl /start ausgegeben wird."""
+<<<<<<< HEAD
     update.message.reply_text('Hallo! Sende mir ein Bild und ich werde das Hauptobjekt erkennen und den Hintergrund entfernen.')
 >>>>>>> ecb9dd8 (Add bot code and requirements)
+=======
+    update.message.reply_text('Hallo! Sende mir ein Bild und ich werde den Hintergrund entfernen.')
+>>>>>>> 7d16231 (Update bot with debug logs)
 
 def process_image(update, context):
     """Verarbeitet das empfangene Bild."""
     try:
+<<<<<<< HEAD
 <<<<<<< HEAD
         user_id = update.effective_user.id
         mode = bot_data.mode.get(user_id, 'transparent')
@@ -481,54 +495,51 @@ def main():
 if __name__ == '__main__':
     main()
 =======
+=======
+        print("Bild empfangen, starte Verarbeitung...")  # Debug
+        
+        # Progress Nachricht
+        msg = update.message.reply_text("Verarbeite Bild... (ca. 30-60 Sekunden)")
+        
+>>>>>>> 7d16231 (Update bot with debug logs)
         # Bild vom Benutzer herunterladen
         photo_file = update.message.photo[-1].get_file()
+        print("Bild heruntergeladen")  # Debug
         
-        # Temporärer Dateiname für das Originalbild
-        input_path = f"temp_{update.message.chat_id}.jpg"
-        output_path = f"output_{update.message.chat_id}.png"
+        # Direkt im Speicher verarbeiten
+        response = requests.get(photo_file.file_path)
+        input_data = response.content
+        print("Bild in Speicher geladen")  # Debug
         
-        # Bild speichern
-        photo_file.download(input_path)
+        # Hintergrund entfernen
+        print("Starte Hintergrundentfernung...")  # Debug
+        output_data = remove(input_data, model_name='u2netp')
+        print("Hintergrund entfernt")  # Debug
         
-        # Hintergrund mit rembg entfernen
-        with open(input_path, 'rb') as i:
-            input_data = i.read()
-            output_data = remove(input_data)
-            
-            # Ergebnis speichern
-            with open(output_path, 'wb') as o:
-                o.write(output_data)
+        # Ergebnis senden
+        update.message.reply_document(
+            document=io.BytesIO(output_data),
+            filename='ohne_hintergrund.png'
+        )
+        print("Bild erfolgreich gesendet")  # Debug
         
-        # Verarbeitetes Bild zurücksenden
-        with open(output_path, 'rb') as photo:
-            update.message.reply_photo(photo)
-        
-        # Temporäre Dateien löschen
-        os.remove(input_path)
-        os.remove(output_path)
+        # Progress Nachricht löschen
+        msg.delete()
         
     except Exception as e:
+        print(f"Fehler aufgetreten: {str(e)}")  # Debug
         update.message.reply_text(f'Ein Fehler ist aufgetreten: {str(e)}')
 
 def main():
     """Startet den Bot."""
-    # Updater für den Bot erstellen
-    updater = Updater(TOKEN, use_context=True)
-
-    # Dispatcher für die Behandlung von Befehlen registrieren
-    dp = updater.dispatcher
-
-    # Befehlshandler hinzufügen
-    dp.add_handler(CommandHandler("start", start))
+    print("Bot starting...")  # Debug
     
-    # Bildhandler hinzufügen
-    dp.add_handler(MessageHandler(Filters.photo, process_image))
-
     # Bot starten
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(MessageHandler(Filters.photo, process_image))
     updater.start_polling()
-    
-    # Bot am Laufen halten bis Ctrl-C
     updater.idle()
 
 if __name__ == '__main__':
